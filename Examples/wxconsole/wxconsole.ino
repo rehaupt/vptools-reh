@@ -2,16 +2,19 @@
 
 #include <SPI.h>
 #include <EEPROM.h>
-
+#include <RTC_DS3231.h>       // From https://github.com/mizraith/RTClib
 #include <SFE_BMP180.h>
 #include <DHTxx.h>
 
+#include <SPIFlash.h>         // From https://github.com/LowPowerLab/SPIFlash
 #include <Wire.h>
 
 #include <avr/wdt.h>
 
 #include "DavisRFM69.h"
 #include "PacketFifo.h"
+
+#include "config.h"
 
 #define NAME_VERSION F("WxReceiver v2016071301")
 
