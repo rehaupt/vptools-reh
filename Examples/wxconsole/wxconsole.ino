@@ -14,12 +14,23 @@
 #include "DavisRFM69.h"
 #include "PacketFifo.h"
 
-#include "config.h"
+#include "SerialCommand.h"
 
-#define NAME_VERSION F("WxReceiver v2016071301")
+#include "config.h"
+#include "data_structures.h"
+
+
+// INT1 on AVRs should be connected to DS3231's SQW (ex on ATmega328 it's D3, on ATmega644/1284 it's D11)
+#define DS3231_IRQ_PIN 3
+#define DS3231_IRQ_NUM 1
+
+#define NAME_VERSION F("wxconsole v20171213001")
 
 #define LED 9                 // Moteinos have LEDs on D9
+#define FLASH_SS      8     // and FLASH SS on D8
+
 #define DHT_DATA_PIN    4     // Use pin D4 to talk to the DHT22
+
 #define SERIAL_BAUD 115200
 #define BARO_DELAY 60 * 1000000 // 60 secs
 
@@ -30,7 +41,49 @@
 
 //#define EMULATE_INT_SENSORS 1
 
+#define ExtEeprom_CHIP_ADDRESS 0x50
+uint32_t ExtEeprom_CHIP_ADDRESS_MASK = (uint32_t)(ExtEeprom_CHIP_ADDRESS) << 16;
+
+#define LOG_AVERAGE_TEMPS    0
+unsigned int PASSWORD_CRC =  0xFFFF;
+
+#define PACKET_INTERVAL 2555
+#define LOOP_INTERVAL   2500
+
+unsigned int YearNow_Eeprom;
+unsigned int PageToWrite = 0;
+byte FirstRunCheck;
+
+
+// --------------------------------------------------------------------------------------
+//    External Eeprom Data Storage Addresses
+// --------------------------------------------------------------------------------------
+const int PageToWrite_Eeprom_adr        = 0x1388;
+const int last_archRainFall_Eeprom_adr  = 0x138A;
+
+// --------------------------------------------------------------------------------------
+//   Arduino Internal Eeprom Data Storage Addresses
+// --------------------------------------------------------------------------------------
+const byte RainGauge_Source_eeprom_adr    = 100;
+const byte TotalRain_tips_Eeprom_adr      = 110;
+const byte RainDayBegin_tips_Eeprom_adr   = 120;
+const byte RainMonthBegin_tips_Eeprom_adr = 130;
+const byte RainYearBegin_tips_Eeprom_adr  = 140;
+const byte thisYearRain_tips_Eeprom_adr   = 150;
+const byte DayLastRain_tip_Eeprom_adr     = 159;
+const byte DayNow_Eeprom_adr              = 160;
+const byte MonthNow_Eeprom_adr            = 170;
+const byte YearNow_Eeprom_adr             = 180;
+const byte DaysWithoutRain_Eeprom_adr     = 190;
+const byte FirstRunCheck_Eeprom_adr       = 200;
+const byte FirstRunInit_Eeprom_adr        = 201;
+const byte SoftwareVersion_Eeprom_adr     = 202;
+const byte SoftwareBuild_Eeprom_adr       = 203;
+
+boolean strmon = false;       // Print the packet when received?
+
 DavisRFM69 radio;
+SPIFlash flash(FLASH_SS, 0xEF30);
 DHTxx thSensor(DHT_DATA_PIN);
 SFE_BMP180 pSensor;
 
@@ -48,6 +101,16 @@ byte cfgOutput = 0;
 Station stations[8] = {
   { 0, STYPE_ISS, true },
 };
+
+RTC_DS3231 RTC;
+SerialCommand sCmd;
+
+LoopPacket loopData;
+volatile bool oneMinutePassed = false;
+
+void rtcInterrupt(void) {
+  oneMinutePassed = true;
+}
 
 void setup() {
   Serial.begin(SERIAL_BAUD);
